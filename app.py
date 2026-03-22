@@ -7,7 +7,7 @@ from pathlib import Path
 # PAGE CONFIG
 # =========================================================
 st.set_page_config(
-    page_title="NG NTB Stop Rate Predictor v5.0",
+    page_title="NG NTB Stop Rate Predictor",
     page_icon="🇳🇬",
     layout="wide"
 )
@@ -18,48 +18,73 @@ st.set_page_config(
 st.markdown("""
 <style>
     .block-container {
-        padding-top: 1rem;
-        padding-bottom: 2rem;
+        padding-top: 0.9rem;
+        padding-bottom: 1.8rem;
         max-width: 1450px;
     }
 
     .hero {
-        padding: 1.4rem 1.5rem;
+        padding: 1.25rem 1.4rem;
         border-radius: 22px;
-        background: linear-gradient(135deg, #0f172a 0%, #111827 60%, #1e293b 100%);
-        border: 1px solid rgba(148,163,184,0.18);
-        box-shadow: 0 12px 28px rgba(0,0,0,0.18);
+        background: linear-gradient(135deg, #0b1220 0%, #111827 55%, #182235 100%);
+        border: 1px solid rgba(148,163,184,0.15);
+        box-shadow: 0 14px 30px rgba(0,0,0,0.16);
         margin-bottom: 1rem;
+    }
+
+    .hero-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
     }
 
     .hero h1 {
         margin: 0;
         color: #f8fafc;
-        font-size: 2.4rem;
+        font-size: 2.2rem;
         line-height: 1.05;
+        font-weight: 700;
+        letter-spacing: -0.02em;
     }
 
-    .hero p {
-        margin: 0.45rem 0 0 0;
-        color: #cbd5e1;
-        font-size: 0.98rem;
+    .hero-badges {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
     }
 
-    .subtle {
+    .badge {
+        display: inline-block;
+        padding: 0.4rem 0.75rem;
+        border-radius: 999px;
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: #dbeafe;
+        background: rgba(30, 41, 59, 0.85);
+        border: 1px solid rgba(148,163,184,0.18);
+    }
+
+    .section-label {
+        font-size: 0.8rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
         color: #94a3b8;
-        font-size: 0.9rem;
+        margin-bottom: 0.25rem;
     }
 
     div[data-testid="stVerticalBlockBorderWrapper"] {
         border-radius: 18px !important;
-        border: 1px solid rgba(148,163,184,0.16) !important;
-        background: rgba(15,23,42,0.52) !important;
-        box-shadow: 0 8px 22px rgba(0,0,0,0.10);
+        border: 1px solid rgba(148,163,184,0.14) !important;
+        background: rgba(15,23,42,0.50) !important;
+        box-shadow: 0 8px 20px rgba(0,0,0,0.08);
     }
 
     div[data-testid="stMetric"] {
-        background: rgba(15,23,42,0.75);
-        border: 1px solid rgba(148,163,184,0.16);
+        background: rgba(15,23,42,0.78);
+        border: 1px solid rgba(148,163,184,0.14);
         padding: 0.85rem 1rem;
         border-radius: 16px;
     }
@@ -67,7 +92,12 @@ st.markdown("""
     .stButton > button {
         border-radius: 12px !important;
         font-weight: 600 !important;
-        border: 1px solid rgba(148,163,184,0.22) !important;
+        border: 1px solid rgba(148,163,184,0.20) !important;
+    }
+
+    .small-note {
+        color: #94a3b8;
+        font-size: 0.9rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -147,10 +177,6 @@ def init_state():
         if k not in st.session_state:
             st.session_state[k] = v
 
-def load_demo_values():
-    for k, v in DEFAULTS.items():
-        st.session_state[k] = v
-
 @st.cache_resource
 def load_models():
     models = {}
@@ -206,8 +232,8 @@ def interpret_result(pred: float, sec_rate: float, lag1_stop: float) -> str:
     if spread_to_sec <= -0.10 and spread_to_lag1 <= -0.05:
         return "Softer than current market tone."
     if spread_to_sec >= 0.10 and spread_to_lag1 >= 0.05:
-        return "Higher / more pressured than recent market tone."
-    return "Broadly in line with recent market tone."
+        return "Higher than recent market tone."
+    return "Broadly in line with market tone."
 
 def predict_all(models: dict):
     preds = {}
@@ -242,42 +268,38 @@ models, missing_models = load_models()
 # =========================================================
 st.markdown("""
 <div class="hero">
-    <h1>🇳🇬 NG NTB Stop Rate Predictor v5.0</h1>
-    <p>Pre-auction predictor using tenor-specific stop-rate history, tenor-specific offer, prior demand, current secondary market tone, and shared liquidity.</p>
-    <p class="subtle">This version uses the same schema as the v5 retrained models.</p>
+    <div class="hero-top">
+        <h1>🇳🇬 NG NTB Stop Rate Predictor</h1>
+        <div class="hero-badges">
+            <span class="badge">Treasury Desk</span>
+            <span class="badge">Internal Use</span>
+        </div>
+    </div>
 </div>
 """, unsafe_allow_html=True)
 
 if missing_models:
-    st.warning(
+    st.error(
         "Missing model file(s): " + ", ".join(missing_models) +
         ". Upload the new v5 model files before predicting."
     )
+    st.stop()
 
-left, right = st.columns([1.05, 1.45], gap="large")
+left, right = st.columns([1.02, 1.48], gap="large")
 
 # =========================================================
 # LEFT PANEL
 # =========================================================
 with left:
     with st.container(border=True):
-        st.subheader("1) Shared Market Inputs")
+        st.markdown('<div class="section-label">Market Inputs</div>', unsafe_allow_html=True)
+        st.subheader("Shared Inputs")
 
-        a, b = st.columns(2)
-        with a:
-            st.date_input(
-                "Auction date",
-                key="auction_date",
-                help="Auction date for the scenario being assessed."
-            )
-        with b:
-            if st.button(
-                "Load demo values",
-                use_container_width=True,
-                help="Load a starter scenario for testing."
-            ):
-                load_demo_values()
-                st.success("Demo values loaded.")
+        st.date_input(
+            "Auction date",
+            key="auction_date",
+            help="Auction date for the scenario being assessed."
+        )
 
         c1, c2 = st.columns(2)
         with c1:
@@ -309,16 +331,17 @@ with left:
                 + float(st.session_state["offer_182"])
                 + float(st.session_state["offer_364"])
             )
-            st.metric("Total current offer", f"{total_offer:,.2f} bn")
+            st.metric("Total offer", f"{total_offer:,.2f} bn")
 
     with st.container(border=True):
-        st.subheader("2) Inputs by Tenor")
+        st.markdown('<div class="section-label">Auction Inputs</div>', unsafe_allow_html=True)
+        st.subheader("By Tenor")
 
         tabs = st.tabs(["91D", "182D", "364D"])
 
         for tenor, tab in zip(TENORS, tabs):
             with tab:
-                st.markdown(f"**{tenor}D scenario inputs**")
+                st.markdown(f"**{tenor}D Inputs**")
 
                 r1, r2 = st.columns(2)
                 with r1:
@@ -393,23 +416,24 @@ with left:
                 feat_preview = derive_tenor_features(tenor)
                 p1, p2, p3 = st.columns(3)
                 with p1:
-                    st.metric(f"{tenor}D MA3 stop", f"{feat_preview['ma3_stop']:.2f}%")
+                    st.metric("MA3 stop", f"{feat_preview['ma3_stop']:.2f}%")
                 with p2:
-                    st.metric(f"{tenor}D stop momentum", f"{feat_preview['delta_stop_1']:+.2f}")
+                    st.metric("Momentum", f"{feat_preview['delta_stop_1']:+.2f}")
                 with p3:
-                    st.metric(f"{tenor}D secondary vs lag1", f"{feat_preview['sec_minus_lag1']:+.2f}")
+                    st.metric("Sec vs lag1", f"{feat_preview['sec_minus_lag1']:+.2f}")
 
 # =========================================================
 # RIGHT PANEL
 # =========================================================
 with right:
     with st.container(border=True):
-        st.subheader("3) Feature Preview")
+        st.markdown('<div class="section-label">Model View</div>', unsafe_allow_html=True)
+        st.subheader("Feature Preview")
         preview_df = build_feature_table()
         st.dataframe(preview_df, use_container_width=True, hide_index=True)
 
         if st.button(
-            "🚀 Predict Stop Rates",
+            "Predict Stop Rates",
             type="primary",
             use_container_width=True,
             help="Run all three tenor models using the current pre-auction scenario."
@@ -420,7 +444,8 @@ with right:
 
     if "predictions" in st.session_state:
         with st.container(border=True):
-            st.subheader("4) Predicted Stop Rates")
+            st.markdown('<div class="section-label">Output</div>', unsafe_allow_html=True)
+            st.subheader("Predicted Stop Rates")
 
             c1, c2, c3 = st.columns(3)
 
@@ -440,24 +465,23 @@ with right:
                     col.caption(str(val))
 
         with st.container(border=True):
-            st.subheader("5) Model Inputs Used")
+            st.markdown('<div class="section-label">Audit Trail</div>', unsafe_allow_html=True)
+            st.subheader("Model Inputs Used")
             st.dataframe(st.session_state["pred_features"], use_container_width=True, hide_index=True)
 
     with st.container(border=True):
+        st.markdown('<div class="section-label">Guide</div>', unsafe_allow_html=True)
         st.subheader("Definitions")
         st.markdown("""
-- **Lag 1 / Lag 2 / Lag 3 stop**: the last three stop rates for that tenor.  
+- **Lag 1 / Lag 2 / Lag 3 stop**: last three stop rates for that tenor.  
 - **MA3 stop**: average of the last three stop rates.  
-- **Stop momentum**: latest stop-rate change, calculated as **lag1 − lag2**.  
+- **Momentum**: latest stop-rate change, calculated as **lag1 − lag2**.  
 - **Offer amount**: current supply for that tenor.  
 - **Offer change**: current offer minus previous offer.  
 - **Previous bid cover**: prior auction demand proxy for that tenor.  
 - **Secondary rate**: current market yield closest to that tenor.  
 - **Secondary rate 5D ago**: same tenor proxy five trading days earlier.  
-- **Secondary vs lag1**: current secondary rate minus most recent stop rate.  
+- **Sec vs lag1**: current secondary rate minus most recent stop rate.  
 - **System liquidity**: estimated net market liquidity before auction.
         """)
-        st.info(
-            "This is a pre-auction tool. It should use previous or observable market variables only, not current-auction realised results."
-        )
-        st.caption("For internal decision support only. Not an official auction result.")
+        st.caption("For internal treasury decision support only.")
