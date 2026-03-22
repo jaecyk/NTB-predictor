@@ -1,503 +1,463 @@
 import streamlit as st
 import pandas as pd
 import joblib
-import requests
-from bs4 import BeautifulSoup
-import re
+from pathlib import Path
 
-# -----------------------------
+# =========================================================
 # PAGE CONFIG
-# -----------------------------
+# =========================================================
 st.set_page_config(
-    page_title="NG NTB Stop Rate Predictor v4.0",
+    page_title="NG NTB Stop Rate Predictor v5.0",
     page_icon="🇳🇬",
     layout="wide"
 )
 
-# -----------------------------
+# =========================================================
 # STYLING
-# -----------------------------
+# =========================================================
 st.markdown("""
 <style>
     .block-container {
-        padding-top: 1.2rem;
+        padding-top: 1rem;
         padding-bottom: 2rem;
-        max-width: 1400px;
+        max-width: 1450px;
     }
 
     .hero {
-        padding: 1.35rem 1.5rem;
-        border-radius: 24px;
-        background: linear-gradient(135deg, #0f172a 0%, #111827 55%, #1f2937 100%);
-        border: 1px solid rgba(148, 163, 184, 0.20);
-        box-shadow: 0 12px 30px rgba(0,0,0,0.22);
+        padding: 1.4rem 1.5rem;
+        border-radius: 22px;
+        background: linear-gradient(135deg, #0f172a 0%, #111827 60%, #1e293b 100%);
+        border: 1px solid rgba(148,163,184,0.18);
+        box-shadow: 0 12px 28px rgba(0,0,0,0.18);
         margin-bottom: 1rem;
     }
 
     .hero h1 {
         margin: 0;
-        font-size: 2.6rem;
-        line-height: 1.05;
         color: #f8fafc;
+        font-size: 2.4rem;
+        line-height: 1.05;
     }
 
     .hero p {
-        margin: 0.5rem 0 0 0;
+        margin: 0.45rem 0 0 0;
         color: #cbd5e1;
-        font-size: 1rem;
+        font-size: 0.98rem;
     }
 
-    .small-muted {
+    .subtle {
         color: #94a3b8;
-        font-size: 0.92rem;
+        font-size: 0.9rem;
     }
 
     div[data-testid="stVerticalBlockBorderWrapper"] {
-        border-radius: 20px !important;
-        border: 1px solid rgba(148, 163, 184, 0.18) !important;
-        background: rgba(15, 23, 42, 0.55) !important;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.14);
+        border-radius: 18px !important;
+        border: 1px solid rgba(148,163,184,0.16) !important;
+        background: rgba(15,23,42,0.52) !important;
+        box-shadow: 0 8px 22px rgba(0,0,0,0.10);
     }
 
     div[data-testid="stMetric"] {
-        background: rgba(15, 23, 42, 0.75);
-        border: 1px solid rgba(148, 163, 184, 0.18);
+        background: rgba(15,23,42,0.75);
+        border: 1px solid rgba(148,163,184,0.16);
         padding: 0.85rem 1rem;
-        border-radius: 18px;
+        border-radius: 16px;
     }
 
     .stButton > button {
-        border-radius: 14px !important;
+        border-radius: 12px !important;
         font-weight: 600 !important;
-        border: 1px solid rgba(148, 163, 184, 0.25) !important;
-    }
-
-    div[data-testid="stDataFrame"] {
-        border-radius: 16px;
-        overflow: hidden;
+        border: 1px solid rgba(148,163,184,0.22) !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# -----------------------------
-# DEFAULTS / STARTER SCENARIO
-# -----------------------------
-DEFAULTS = {
-    "MPR": 26.50,
-    "inflation": 15.06,
-    "liquidity": 2780.0,
-    "omo_maturity": 45,
-    "predictions": None,
-    "prediction_features": None,
-    # liquidity estimator defaults
-    "liq_opening": 1800.0,
-    "liq_omo_maturities": 350.0,
-    "liq_ntb_maturities": 250.0,
-    "liq_bond_coupons": 120.0,
-    "liq_faac_other_inflows": 500.0,
-    "liq_crr_debits": 100.0,
-    "liq_omo_sales": 50.0,
-    "liq_ntb_auction_debit": 60.0,
-    "liq_tax_govt_outflows": 20.0,
-    "liq_other_drains": 10.0,
-}
-
-# Starter scenario only. Replace with actual tenor-specific latest values if you have them.
-STARTER_SCENARIO = {
-    "MPR": 26.50,
-    "inflation": 15.06,
-    "liquidity": 2780.0,
-    "omo_maturity": 45,
-    "tenors": {
-        91:  {"offered": 100.0, "bids": 285.0, "lag1": 15.95, "lag2": 16.65, "lag3": 16.72},
-        182: {"offered": 100.0, "bids": 285.0, "lag1": 15.95, "lag2": 16.65, "lag3": 16.72},
-        364: {"offered": 100.0, "bids": 285.0, "lag1": 15.95, "lag2": 16.65, "lag3": 16.72},
-    }
-}
-
+# =========================================================
+# CONSTANTS
+# =========================================================
 TENORS = [91, 182, 364]
 
-# -----------------------------
+MODEL_FILES = {
+    91: "gti_ntb_v5_91D.pkl",
+    182: "gti_ntb_v5_182D.pkl",
+    364: "gti_ntb_v5_364D.pkl",
+}
+
+FEATURE_ORDER = [
+    "lag1_stop",
+    "lag2_stop",
+    "lag3_stop",
+    "ma3_stop",
+    "delta_stop_1",
+    "offer_amt",
+    "offer_change",
+    "prev_bid_cover",
+    "sec_rate",
+    "sec_rate_change_5d",
+    "sec_minus_lag1",
+    "system_liquidity",
+    "mpr",
+    "inflation",
+]
+
+DEFAULTS = {
+    "auction_date": pd.Timestamp.today().date(),
+    "system_liquidity": 2780.0,
+    "mpr": 26.50,
+    "inflation": 15.06,
+
+    "offer_91": 80.0,
+    "offer_182": 120.0,
+    "offer_364": 500.0,
+
+    "prev_offer_91": 80.0,
+    "prev_offer_182": 120.0,
+    "prev_offer_364": 500.0,
+
+    "prev_bid_cover_91": 2.20,
+    "prev_bid_cover_182": 1.90,
+    "prev_bid_cover_364": 3.10,
+
+    "lag1_stop_91": 16.10,
+    "lag2_stop_91": 15.95,
+    "lag3_stop_91": 15.80,
+
+    "lag1_stop_182": 16.35,
+    "lag2_stop_182": 16.20,
+    "lag3_stop_182": 16.05,
+
+    "lag1_stop_364": 16.85,
+    "lag2_stop_364": 16.70,
+    "lag3_stop_364": 16.55,
+
+    "sec_rate_91": 16.25,
+    "sec_rate_182": 16.50,
+    "sec_rate_364": 16.95,
+
+    "sec_rate_5d_ago_91": 16.05,
+    "sec_rate_5d_ago_182": 16.30,
+    "sec_rate_5d_ago_364": 16.70,
+}
+
+# =========================================================
 # HELPERS
-# -----------------------------
+# =========================================================
 def init_state():
     for k, v in DEFAULTS.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
-    for tenor in TENORS:
-        if f"offered_{tenor}" not in st.session_state:
-            st.session_state[f"offered_{tenor}"] = STARTER_SCENARIO["tenors"][tenor]["offered"]
-        if f"bids_{tenor}" not in st.session_state:
-            st.session_state[f"bids_{tenor}"] = STARTER_SCENARIO["tenors"][tenor]["bids"]
-        if f"lag1_{tenor}" not in st.session_state:
-            st.session_state[f"lag1_{tenor}"] = STARTER_SCENARIO["tenors"][tenor]["lag1"]
-        if f"lag2_{tenor}" not in st.session_state:
-            st.session_state[f"lag2_{tenor}"] = STARTER_SCENARIO["tenors"][tenor]["lag2"]
-        if f"lag3_{tenor}" not in st.session_state:
-            st.session_state[f"lag3_{tenor}"] = STARTER_SCENARIO["tenors"][tenor]["lag3"]
-
-def load_starter_scenario():
-    st.session_state["MPR"] = STARTER_SCENARIO["MPR"]
-    st.session_state["inflation"] = STARTER_SCENARIO["inflation"]
-    st.session_state["liquidity"] = STARTER_SCENARIO["liquidity"]
-    st.session_state["omo_maturity"] = STARTER_SCENARIO["omo_maturity"]
-
-    for tenor in TENORS:
-        st.session_state[f"offered_{tenor}"] = STARTER_SCENARIO["tenors"][tenor]["offered"]
-        st.session_state[f"bids_{tenor}"] = STARTER_SCENARIO["tenors"][tenor]["bids"]
-        st.session_state[f"lag1_{tenor}"] = STARTER_SCENARIO["tenors"][tenor]["lag1"]
-        st.session_state[f"lag2_{tenor}"] = STARTER_SCENARIO["tenors"][tenor]["lag2"]
-        st.session_state[f"lag3_{tenor}"] = STARTER_SCENARIO["tenors"][tenor]["lag3"]
-
-def derive_bid_cover(tenor: int) -> float:
-    offered = st.session_state.get(f"offered_{tenor}", 0.0)
-    bids = st.session_state.get(f"bids_{tenor}", 0.0)
-    if offered and offered > 0:
-        return round(bids / offered, 4)
-    return 0.0
-
-def estimate_liquidity() -> float:
-    return round(
-        st.session_state["liq_opening"]
-        + st.session_state["liq_omo_maturities"]
-        + st.session_state["liq_ntb_maturities"]
-        + st.session_state["liq_bond_coupons"]
-        + st.session_state["liq_faac_other_inflows"]
-        - st.session_state["liq_crr_debits"]
-        - st.session_state["liq_omo_sales"]
-        - st.session_state["liq_ntb_auction_debit"]
-        - st.session_state["liq_tax_govt_outflows"]
-        - st.session_state["liq_other_drains"],
-        2
-    )
-
-def scrape_cbn_data():
-    data = {
-        "policy_rate": st.session_state.get("MPR", 26.50),
-        "inflation_rate": st.session_state.get("inflation", 15.06)
-    }
-
-    try:
-        r = requests.get("https://www.cbn.gov.ng/MonetaryPolicy/decisions.html", timeout=12)
-        match = re.search(r"to\s+(\d{1,2}\.?\d{0,2})\s+per cent", r.text, re.IGNORECASE)
-        if match:
-            data["policy_rate"] = float(match.group(1))
-    except Exception:
-        pass
-
-    try:
-        r = requests.get("https://www.cbn.gov.ng/rates/inflrates.html", timeout=12)
-        soup = BeautifulSoup(r.text, "html.parser")
-        table = soup.find("table")
-        if table:
-            cells = table.find_all("tr")[-1].find_all("td")
-            infl_str = re.sub(r"[^0-9.]", "", cells[1].text.strip()) if len(cells) > 1 else ""
-            if infl_str:
-                data["inflation_rate"] = float(infl_str)
-    except Exception:
-        pass
-
-    return data
-
-def build_model_features(tenor: int) -> dict:
-    lag1 = st.session_state[f"lag1_{tenor}"]
-    lag2 = st.session_state[f"lag2_{tenor}"]
-    lag3 = st.session_state[f"lag3_{tenor}"]
-
-    return {
-        "lag1_rate": lag1,
-        "lag2_rate": lag2,
-        "lag3_rate": lag3,
-        "ma3_rate": (lag1 + lag2 + lag3) / 3.0,
-        "bid_cover": derive_bid_cover(tenor),
-        "MPR": st.session_state["MPR"],
-        "inflation": st.session_state["inflation"],
-        "liquidity": st.session_state["liquidity"],
-        "omo_maturity": st.session_state["omo_maturity"],
-        "tenor_years": tenor / 365.0
-    }
+def load_demo_values():
+    for k, v in DEFAULTS.items():
+        st.session_state[k] = v
 
 @st.cache_resource
 def load_models():
-    return {t: joblib.load(f"gti_model_tenor_{t}D.pkl") for t in TENORS}
+    models = {}
+    missing = []
 
-# -----------------------------
+    for tenor, fname in MODEL_FILES.items():
+        if Path(fname).exists():
+            models[tenor] = joblib.load(fname)
+        else:
+            missing.append(fname)
+
+    return models, missing
+
+def derive_tenor_features(tenor: int) -> dict:
+    lag1 = float(st.session_state[f"lag1_stop_{tenor}"])
+    lag2 = float(st.session_state[f"lag2_stop_{tenor}"])
+    lag3 = float(st.session_state[f"lag3_stop_{tenor}"])
+
+    offer_amt = float(st.session_state[f"offer_{tenor}"])
+    prev_offer = float(st.session_state[f"prev_offer_{tenor}"])
+
+    sec_rate = float(st.session_state[f"sec_rate_{tenor}"])
+    sec_rate_5d_ago = float(st.session_state[f"sec_rate_5d_ago_{tenor}"])
+
+    return {
+        "lag1_stop": lag1,
+        "lag2_stop": lag2,
+        "lag3_stop": lag3,
+        "ma3_stop": round((lag1 + lag2 + lag3) / 3.0, 6),
+        "delta_stop_1": round(lag1 - lag2, 6),
+        "offer_amt": offer_amt,
+        "offer_change": round(offer_amt - prev_offer, 6),
+        "prev_bid_cover": float(st.session_state[f"prev_bid_cover_{tenor}"]),
+        "sec_rate": sec_rate,
+        "sec_rate_change_5d": round(sec_rate - sec_rate_5d_ago, 6),
+        "sec_minus_lag1": round(sec_rate - lag1, 6),
+        "system_liquidity": float(st.session_state["system_liquidity"]),
+        "mpr": float(st.session_state["mpr"]),
+        "inflation": float(st.session_state["inflation"]),
+    }
+
+def build_feature_table() -> pd.DataFrame:
+    rows = []
+    for tenor in TENORS:
+        feat = derive_tenor_features(tenor)
+        rows.append({"tenor": f"{tenor}D", **feat})
+    return pd.DataFrame(rows)
+
+def interpret_result(pred: float, sec_rate: float, lag1_stop: float) -> str:
+    spread_to_sec = pred - sec_rate
+    spread_to_lag1 = pred - lag1_stop
+
+    if spread_to_sec <= -0.10 and spread_to_lag1 <= -0.05:
+        return "Softer than current market tone."
+    if spread_to_sec >= 0.10 and spread_to_lag1 >= 0.05:
+        return "Higher / more pressured than recent market tone."
+    return "Broadly in line with recent market tone."
+
+def predict_all(models: dict):
+    preds = {}
+    feature_rows = []
+
+    for tenor in TENORS:
+        feat = derive_tenor_features(tenor)
+        feature_rows.append({"tenor": f"{tenor}D", **feat})
+
+        if tenor not in models:
+            preds[tenor] = "Model file not found"
+            continue
+
+        X = pd.DataFrame([feat])[FEATURE_ORDER]
+
+        try:
+            yhat = float(models[tenor].predict(X)[0])
+            preds[tenor] = round(yhat, 4)
+        except Exception as e:
+            preds[tenor] = f"{type(e).__name__}: {e}"
+
+    return preds, pd.DataFrame(feature_rows)
+
+# =========================================================
 # INIT
-# -----------------------------
+# =========================================================
 init_state()
-models = load_models()
+models, missing_models = load_models()
 
-# -----------------------------
+# =========================================================
 # HEADER
-# -----------------------------
+# =========================================================
 st.markdown("""
 <div class="hero">
-    <h1>🇳🇬 NG NTB Stop Rate Predictor v4.0</h1>
-    <p>Tenor-specific lags, tenor-specific bid cover, shared market inputs, and a cleaner executive layout.</p>
-    <p class="small-muted">
-        Use shared macro conditions across the auction, then enter each tenor’s own demand and last three stop rates.
-    </p>
+    <h1>🇳🇬 NG NTB Stop Rate Predictor v5.0</h1>
+    <p>Pre-auction predictor using tenor-specific stop-rate history, tenor-specific offer, prior demand, current secondary market tone, and shared liquidity.</p>
+    <p class="subtle">This version uses the same schema as the v5 retrained models.</p>
 </div>
 """, unsafe_allow_html=True)
 
+if missing_models:
+    st.warning(
+        "Missing model file(s): " + ", ".join(missing_models) +
+        ". Upload the new v5 model files before predicting."
+    )
+
 left, right = st.columns([1.05, 1.45], gap="large")
 
-# -----------------------------
+# =========================================================
 # LEFT PANEL
-# -----------------------------
+# =========================================================
 with left:
     with st.container(border=True):
         st.subheader("1) Shared Market Inputs")
 
-        btn1, btn2 = st.columns(2)
-        with btn1:
+        a, b = st.columns(2)
+        with a:
+            st.date_input(
+                "Auction date",
+                key="auction_date",
+                help="Auction date for the scenario being assessed."
+            )
+        with b:
             if st.button(
-                "🔄 Scrape latest MPR & inflation",
+                "Load demo values",
                 use_container_width=True,
-                help="Fetch the latest available MPR and inflation values from the live CBN pages and update the two fields."
+                help="Load a starter scenario for testing."
             ):
-                auto = scrape_cbn_data()
-                st.session_state["MPR"] = auto["policy_rate"]
-                st.session_state["inflation"] = auto["inflation_rate"]
-                st.success(f"Updated: MPR {auto['policy_rate']}% | Inflation {auto['inflation_rate']}%")
-
-        with btn2:
-            if st.button(
-                "🧩 Load starter scenario",
-                use_container_width=True,
-                help="Load a starter set of values so you can test the app quickly. Replace them with your actual auction values."
-            ):
-                load_starter_scenario()
-                st.success("Starter scenario loaded.")
+                load_demo_values()
+                st.success("Demo values loaded.")
 
         c1, c2 = st.columns(2)
         with c1:
             st.number_input(
-                "MPR (%)",
-                min_value=0.0,
-                step=0.25,
-                key="MPR",
-                help="Current Monetary Policy Rate used as a shared macro input across all three tenor models."
+                "System liquidity (NGN bn)",
+                key="system_liquidity",
+                step=10.0,
+                help="Estimated net system liquidity before the auction."
             )
         with c2:
             st.number_input(
-                "Inflation (%)",
-                min_value=0.0,
-                step=0.01,
-                key="inflation",
-                help="Latest inflation reading used as a shared macroeconomic input across all three tenor models."
+                "MPR (%)",
+                key="mpr",
+                step=0.25,
+                help="Current Monetary Policy Rate."
             )
 
         c3, c4 = st.columns(2)
         with c3:
             st.number_input(
-                "Liquidity (NGN bn)",
-                step=10.0,
-                key="liquidity",
-                help="Shared market liquidity condition used by all three tenor models. This is the estimated net system liquidity around the auction."
+                "Inflation (%)",
+                key="inflation",
+                step=0.01,
+                help="Latest inflation reading."
             )
         with c4:
-            st.number_input(
-                "OMO Maturity (days)",
-                min_value=0,
-                step=1,
-                key="omo_maturity",
-                help="Days to maturity for the relevant OMO condition being used as a market input."
+            total_offer = (
+                float(st.session_state["offer_91"])
+                + float(st.session_state["offer_182"])
+                + float(st.session_state["offer_364"])
             )
-
-        st.caption(
-            "Liquidity is shared across the auction. Bid cover and lags are now tenor-specific."
-        )
-
-        with st.expander("Optional: liquidity estimator", expanded=False):
-            st.markdown("Estimate liquidity from major inflows and drains, then push it into the model input.")
-
-            a1, a2 = st.columns(2)
-            with a1:
-                st.number_input("Opening liquidity", step=10.0, key="liq_opening")
-                st.number_input("OMO maturities", step=10.0, key="liq_omo_maturities")
-                st.number_input("NTB maturities", step=10.0, key="liq_ntb_maturities")
-                st.number_input("Bond coupons/redemptions", step=10.0, key="liq_bond_coupons")
-                st.number_input("FAAC / other inflows", step=10.0, key="liq_faac_other_inflows")
-
-            with a2:
-                st.number_input("CRR debits", step=10.0, key="liq_crr_debits")
-                st.number_input("OMO sales", step=10.0, key="liq_omo_sales")
-                st.number_input("NTB auction debit", step=10.0, key="liq_ntb_auction_debit")
-                st.number_input("Tax / govt outflows", step=10.0, key="liq_tax_govt_outflows")
-                st.number_input("Other drains", step=10.0, key="liq_other_drains")
-
-            est_liq = estimate_liquidity()
-            st.metric("Estimated liquidity", f"{est_liq:,.2f} bn")
-
-            if st.button(
-                "Apply estimated liquidity",
-                use_container_width=True,
-                help="Copy the estimated liquidity into the main Liquidity input used by the model."
-            ):
-                st.session_state["liquidity"] = est_liq
-                st.success("Estimated liquidity applied to shared market inputs.")
-
-            st.caption(
-                "Formula: opening liquidity + OMO maturities + NTB maturities + bond coupons/redemptions + FAAC/other inflows "
-                "− CRR debits − OMO sales − NTB auction debit − tax/govt outflows − other drains."
-            )
+            st.metric("Total current offer", f"{total_offer:,.2f} bn")
 
     with st.container(border=True):
-        st.subheader("2) Auction Inputs by Tenor")
+        st.subheader("2) Inputs by Tenor")
 
         tabs = st.tabs(["91D", "182D", "364D"])
 
         for tenor, tab in zip(TENORS, tabs):
             with tab:
-                st.markdown(f"**{tenor}D inputs**")
-                x1, x2 = st.columns(2)
+                st.markdown(f"**{tenor}D scenario inputs**")
 
-                with x1:
+                r1, r2 = st.columns(2)
+                with r1:
                     st.number_input(
-                        "Amount offered (NGN bn)",
-                        min_value=0.0,
+                        f"{tenor}D offer amount (NGN bn)",
+                        key=f"offer_{tenor}",
                         step=10.0,
-                        key=f"offered_{tenor}",
-                        help=f"Amount offered for the {tenor}D tenor. Used with total bids to calculate tenor-specific bid cover."
+                        min_value=0.0,
+                        help=f"Current amount offered for the {tenor}D tenor."
+                    )
+                with r2:
+                    st.number_input(
+                        f"{tenor}D previous offer (NGN bn)",
+                        key=f"prev_offer_{tenor}",
+                        step=10.0,
+                        min_value=0.0,
+                        help=f"Offer amount for the previous {tenor}D auction."
                     )
 
-                with x2:
+                r3, r4 = st.columns(2)
+                with r3:
                     st.number_input(
-                        "Total bids received (NGN bn)",
+                        f"{tenor}D previous bid cover",
+                        key=f"prev_bid_cover_{tenor}",
+                        step=0.05,
                         min_value=0.0,
-                        step=10.0,
-                        key=f"bids_{tenor}",
-                        help=f"Total bids received for the {tenor}D tenor."
+                        help=f"Previous auction bid cover for the {tenor}D tenor."
                     )
-
-                bid_cover_val = derive_bid_cover(tenor)
-                st.metric(f"{tenor}D calculated bid cover", f"{bid_cover_val:.2f}x")
-                st.caption("Bid cover = total bids received ÷ amount offered")
+                with r4:
+                    offer_change = float(st.session_state[f"offer_{tenor}"]) - float(st.session_state[f"prev_offer_{tenor}"])
+                    st.metric(f"{tenor}D offer change", f"{offer_change:,.2f} bn")
 
                 l1, l2, l3 = st.columns(3)
                 with l1:
                     st.number_input(
-                        "Lag 1",
+                        f"{tenor}D lag 1 stop",
+                        key=f"lag1_stop_{tenor}",
                         step=0.01,
-                        key=f"lag1_{tenor}",
                         help=f"Most recent stop rate for the {tenor}D tenor."
                     )
                 with l2:
                     st.number_input(
-                        "Lag 2",
+                        f"{tenor}D lag 2 stop",
+                        key=f"lag2_stop_{tenor}",
                         step=0.01,
-                        key=f"lag2_{tenor}",
                         help=f"Second most recent stop rate for the {tenor}D tenor."
                     )
                 with l3:
                     st.number_input(
-                        "Lag 3",
+                        f"{tenor}D lag 3 stop",
+                        key=f"lag3_stop_{tenor}",
                         step=0.01,
-                        key=f"lag3_{tenor}",
                         help=f"Third most recent stop rate for the {tenor}D tenor."
                     )
 
-                ma3 = round(
-                    (
-                        st.session_state[f"lag1_{tenor}"]
-                        + st.session_state[f"lag2_{tenor}"]
-                        + st.session_state[f"lag3_{tenor}"]
-                    ) / 3.0,
-                    4
-                )
-                st.caption(f"{tenor}D rolling 3-auction average: **{ma3:.4f}%**")
+                s1, s2 = st.columns(2)
+                with s1:
+                    st.number_input(
+                        f"{tenor}D secondary rate",
+                        key=f"sec_rate_{tenor}",
+                        step=0.01,
+                        help=f"Current secondary market yield closest to the {tenor}D tenor."
+                    )
+                with s2:
+                    st.number_input(
+                        f"{tenor}D secondary rate 5D ago",
+                        key=f"sec_rate_5d_ago_{tenor}",
+                        step=0.01,
+                        help=f"Secondary market yield for the same tenor proxy five trading days ago."
+                    )
 
-# -----------------------------
+                feat_preview = derive_tenor_features(tenor)
+                p1, p2, p3 = st.columns(3)
+                with p1:
+                    st.metric(f"{tenor}D MA3 stop", f"{feat_preview['ma3_stop']:.2f}%")
+                with p2:
+                    st.metric(f"{tenor}D stop momentum", f"{feat_preview['delta_stop_1']:+.2f}")
+                with p3:
+                    st.metric(f"{tenor}D secondary vs lag1", f"{feat_preview['sec_minus_lag1']:+.2f}")
+
+# =========================================================
 # RIGHT PANEL
-# -----------------------------
+# =========================================================
 with right:
     with st.container(border=True):
-        st.subheader("Scenario Summary")
-
-        summary_rows = []
-        for tenor in TENORS:
-            lag1 = st.session_state[f"lag1_{tenor}"]
-            lag2 = st.session_state[f"lag2_{tenor}"]
-            lag3 = st.session_state[f"lag3_{tenor}"]
-
-            summary_rows.append({
-                "tenor": f"{tenor}D",
-                "amount_offered": st.session_state[f"offered_{tenor}"],
-                "total_bids": st.session_state[f"bids_{tenor}"],
-                "bid_cover": derive_bid_cover(tenor),
-                "lag1": lag1,
-                "lag2": lag2,
-                "lag3": lag3,
-                "ma3_rate": round((lag1 + lag2 + lag3) / 3.0, 4),
-                "MPR": st.session_state["MPR"],
-                "inflation": st.session_state["inflation"],
-                "liquidity": st.session_state["liquidity"],
-                "omo_maturity": st.session_state["omo_maturity"]
-            })
-
-        st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+        st.subheader("3) Feature Preview")
+        preview_df = build_feature_table()
+        st.dataframe(preview_df, use_container_width=True, hide_index=True)
 
         if st.button(
-            "🚀 Predict NTB Stop Rates",
+            "🚀 Predict Stop Rates",
             type="primary",
             use_container_width=True,
-            help="Run the models using the current shared market inputs and each tenor’s own lags and bid cover."
+            help="Run all three tenor models using the current pre-auction scenario."
         ):
-            preds = {}
-            feature_rows = []
-
-            for tenor, pipe in models.items():
-                feat = build_model_features(tenor)
-                feature_rows.append({"tenor": f"{tenor}D", **feat})
-
-                try:
-                    pred = float(pipe.predict(pd.DataFrame([feat]))[0])
-                    preds[tenor] = round(pred, 4)
-                except Exception as e:
-                    preds[tenor] = f"{type(e).__name__}: {e}"
-
+            preds, pred_features = predict_all(models)
             st.session_state["predictions"] = preds
-            st.session_state["prediction_features"] = feature_rows
+            st.session_state["pred_features"] = pred_features
 
-    if st.session_state["predictions"] is not None:
+    if "predictions" in st.session_state:
         with st.container(border=True):
-            st.subheader("Predicted Stop Rates")
-            r1, r2, r3 = st.columns(3)
+            st.subheader("4) Predicted Stop Rates")
+
+            c1, c2, c3 = st.columns(3)
 
             for idx, tenor in enumerate(TENORS):
                 val = st.session_state["predictions"][tenor]
-                col = [r1, r2, r3][idx]
+                col = [c1, c2, c3][idx]
 
                 if isinstance(val, (float, int)):
+                    sec_rate = float(st.session_state[f"sec_rate_{tenor}"])
+                    lag1 = float(st.session_state[f"lag1_stop_{tenor}"])
+                    interpretation = interpret_result(val, sec_rate, lag1)
+
                     col.metric(f"{tenor}D Estimated Stop Rate", f"{val:.2f}%")
+                    col.caption(interpretation)
                 else:
-                    col.error(f"{tenor}D failed")
+                    col.error(f"{tenor}D prediction failed")
                     col.caption(str(val))
 
         with st.container(border=True):
-            st.subheader("Model Inputs Sent to Each Tenor Model")
-            st.dataframe(
-                pd.DataFrame(st.session_state["prediction_features"]),
-                use_container_width=True,
-                hide_index=True
-            )
+            st.subheader("5) Model Inputs Used")
+            st.dataframe(st.session_state["pred_features"], use_container_width=True, hide_index=True)
 
     with st.container(border=True):
         st.subheader("Definitions")
         st.markdown("""
-- **Bid cover ratio** = **total bids received ÷ amount offered** for that tenor.  
-- **Tenor-specific lags** = the last three stop rates for that tenor only.  
-- **Liquidity** = a shared auction-market liquidity condition. A practical treasury estimate is:  
-  **opening liquidity + OMO maturities + NTB maturities + bond coupons/redemptions + FAAC/other inflows − CRR debits − OMO sales − NTB auction debit − tax/govt outflows − other drains**.
+- **Lag 1 / Lag 2 / Lag 3 stop**: the last three stop rates for that tenor.  
+- **MA3 stop**: average of the last three stop rates.  
+- **Stop momentum**: latest stop-rate change, calculated as **lag1 − lag2**.  
+- **Offer amount**: current supply for that tenor.  
+- **Offer change**: current offer minus previous offer.  
+- **Previous bid cover**: prior auction demand proxy for that tenor.  
+- **Secondary rate**: current market yield closest to that tenor.  
+- **Secondary rate 5D ago**: same tenor proxy five trading days earlier.  
+- **Secondary vs lag1**: current secondary rate minus most recent stop rate.  
+- **System liquidity**: estimated net market liquidity before auction.
         """)
-
         st.info(
-            "Current models are still the existing saved models, but each tenor now receives its own lags and bid cover at prediction time. "
-            "The next best upgrade is retraining the models end-to-end on tenor-specific histories."
+            "This is a pre-auction tool. It should use previous or observable market variables only, not current-auction realised results."
         )
-
-        st.caption(
-            "For internal decision support only. Model outputs are estimates, not official auction results."
-        )
+        st.caption("For internal decision support only. Not an official auction result.")
