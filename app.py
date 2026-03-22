@@ -160,13 +160,13 @@ DEFAULTS = {
     "lag2_stop_364": 16.70,
     "lag3_stop_364": 16.55,
 
-    "sec_rate_91": 16.25,
-    "sec_rate_182": 16.50,
-    "sec_rate_364": 16.95,
+    "sec_rate_91": 16.0943,
+    "sec_rate_182": 17.5339,
+    "sec_rate_364": 19.6057,
 
     "sec_rate_5d_ago_91": 16.05,
-    "sec_rate_5d_ago_182": 16.30,
-    "sec_rate_5d_ago_364": 16.70,
+    "sec_rate_5d_ago_182": 17.30,
+    "sec_rate_5d_ago_364": 19.20,
 }
 
 # =========================================================
@@ -234,6 +234,51 @@ def interpret_result(pred: float, sec_rate: float, lag1_stop: float) -> str:
     if spread_to_sec >= 0.10 and spread_to_lag1 >= 0.05:
         return "Higher than recent market tone."
     return "Broadly in line with market tone."
+
+def build_tenor_interpretation(tenor: int, pred: float) -> str:
+    sec_rate = float(st.session_state[f"sec_rate_{tenor}"])
+    lag1 = float(st.session_state[f"lag1_stop_{tenor}"])
+    offer_amt = float(st.session_state[f"offer_{tenor}"])
+    prev_offer = float(st.session_state[f"prev_offer_{tenor}"])
+    prev_bid_cover = float(st.session_state[f"prev_bid_cover_{tenor}"])
+
+    spread_to_sec = round(pred - sec_rate, 2)
+    spread_to_lag1 = round(pred - lag1, 2)
+    offer_change = round(offer_amt - prev_offer, 2)
+
+    if spread_to_sec >= 0.15:
+        market_tone = "pricing above current secondary market tone"
+    elif spread_to_sec <= -0.15:
+        market_tone = "pricing below current secondary market tone"
+    else:
+        market_tone = "pricing broadly in line with current secondary market tone"
+
+    if spread_to_lag1 >= 0.10:
+        stop_comparison = "above the most recent stop rate"
+    elif spread_to_lag1 <= -0.10:
+        stop_comparison = "below the most recent stop rate"
+    else:
+        stop_comparison = "close to the most recent stop rate"
+
+    if offer_change > 0:
+        supply_view = f"supply is higher by {offer_change:,.2f}bn versus the previous offer"
+    elif offer_change < 0:
+        supply_view = f"supply is lower by {abs(offer_change):,.2f}bn versus the previous offer"
+    else:
+        supply_view = "supply is unchanged versus the previous offer"
+
+    if prev_bid_cover >= 3.0:
+        demand_view = "prior demand was strong"
+    elif prev_bid_cover >= 2.0:
+        demand_view = "prior demand was moderate"
+    else:
+        demand_view = "prior demand was relatively soft"
+
+    return (
+        f"{tenor}D is indicating {market_tone}, {stop_comparison}. "
+        f"Model context suggests {supply_view}, while {demand_view} "
+        f"(previous bid cover: {prev_bid_cover:.2f}x)."
+    )
 
 def predict_all(models: dict):
     preds = {}
@@ -331,7 +376,7 @@ with left:
                 + float(st.session_state["offer_182"])
                 + float(st.session_state["offer_364"])
             )
-            st.metric("Total offer", f"{total_offer:,.2f} bn")
+            st.metric("Calculated total offer", f"{total_offer:,.2f} bn")
 
     with st.container(border=True):
         st.markdown('<div class="section-label">Auction Inputs</div>', unsafe_allow_html=True)
@@ -402,14 +447,16 @@ with left:
                     st.number_input(
                         f"{tenor}D secondary rate",
                         key=f"sec_rate_{tenor}",
-                        step=0.01,
+                        step=0.0001,
+                        format="%.4f",
                         help=f"Current secondary market yield closest to the {tenor}D tenor."
                     )
                 with s2:
                     st.number_input(
                         f"{tenor}D secondary rate 5D ago",
                         key=f"sec_rate_5d_ago_{tenor}",
-                        step=0.01,
+                        step=0.0001,
+                        format="%.4f",
                         help=f"Secondary market yield for the same tenor proxy five trading days ago."
                     )
 
@@ -465,23 +512,23 @@ with right:
                     col.caption(str(val))
 
         with st.container(border=True):
+            st.markdown('<div class="section-label">Interpretation</div>', unsafe_allow_html=True)
+            st.subheader("Auction Interpretation")
+
+            for tenor in TENORS:
+                val = st.session_state["predictions"][tenor]
+
+                if isinstance(val, (float, int)):
+                    st.markdown(f"**{tenor}D:** {build_tenor_interpretation(tenor, float(val))}")
+                else:
+                    st.markdown(f"**{tenor}D:** Interpretation unavailable because prediction failed.")
+
+        with st.container(border=True):
             st.markdown('<div class="section-label">Audit Trail</div>', unsafe_allow_html=True)
             st.subheader("Model Inputs Used")
             st.dataframe(st.session_state["pred_features"], use_container_width=True, hide_index=True)
 
     with st.container(border=True):
-        st.markdown('<div class="section-label">Guide</div>', unsafe_allow_html=True)
-        st.subheader("Definitions")
-        st.markdown("""
-- **Lag 1 / Lag 2 / Lag 3 stop**: last three stop rates for that tenor.  
-- **MA3 stop**: average of the last three stop rates.  
-- **Momentum**: latest stop-rate change, calculated as **lag1 − lag2**.  
-- **Offer amount**: current supply for that tenor.  
-- **Offer change**: current offer minus previous offer.  
-- **Previous bid cover**: prior auction demand proxy for that tenor.  
-- **Secondary rate**: current market yield closest to that tenor.  
-- **Secondary rate 5D ago**: same tenor proxy five trading days earlier.  
-- **Sec vs lag1**: current secondary rate minus most recent stop rate.  
-- **System liquidity**: estimated net market liquidity before auction.
-        """)
+        st.markdown('<div class="section-label">Note</div>', unsafe_allow_html=True)
+        st.subheader("Model Use")
         st.caption("For internal treasury decision support only.")
