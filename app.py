@@ -314,7 +314,7 @@ models, missing_models = load_models()
 st.markdown("""
 <div class="hero">
     <div class="hero-top">
-        <h1>🇳🇬 NG NTB Stop Rate Predictor</h1>
+        <h1>NG NTB Stop Rate Predictor</h1>
         <div class="hero-badges">
             <span class="badge">Treasury Desk</span>
             <span class="badge">Internal Use</span>
