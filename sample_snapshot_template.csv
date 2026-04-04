@@ -1,0 +1,4 @@
+auction_date,tenor_days,lag1_stop,lag2_stop,lag3_stop,offer_amt,prev_offer,prev_bid_cover,sec_rate,sec_rate_5d_ago,system_liquidity,mpr,inflation,source
+2026-04-04,91,16.10,15.95,15.80,80.0,80.0,2.20,16.0943,16.0500,2780.0,26.50,15.06,csv_ingest
+2026-04-04,182,16.35,16.20,16.05,120.0,120.0,1.90,17.5339,17.3000,2780.0,26.50,15.06,csv_ingest
+2026-04-04,364,16.85,16.70,16.55,500.0,500.0,3.10,19.6057,19.2000,2780.0,26.50,15.06,csv_ingest
