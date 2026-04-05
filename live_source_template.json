@@ -1,0 +1,44 @@
+{
+  "shared": {
+    "auction_date": "2026-04-05",
+    "system_liquidity": 2780.0,
+    "mpr": 26.5,
+    "inflation": 15.06,
+    "source": "remote_json_feed"
+  },
+  "tenors": [
+    {
+      "tenor_days": 91,
+      "lag1_stop": 16.10,
+      "lag2_stop": 15.95,
+      "lag3_stop": 15.80,
+      "offer_amt": 80.0,
+      "prev_offer": 80.0,
+      "prev_bid_cover": 2.20,
+      "sec_rate": 16.0943,
+      "sec_rate_5d_ago": 16.0500
+    },
+    {
+      "tenor_days": 182,
+      "lag1_stop": 16.35,
+      "lag2_stop": 16.20,
+      "lag3_stop": 16.05,
+      "offer_amt": 120.0,
+      "prev_offer": 120.0,
+      "prev_bid_cover": 1.90,
+      "sec_rate": 17.5339,
+      "sec_rate_5d_ago": 17.3000
+    },
+    {
+      "tenor_days": 364,
+      "lag1_stop": 16.85,
+      "lag2_stop": 16.70,
+      "lag3_stop": 16.55,
+      "offer_amt": 500.0,
+      "prev_offer": 500.0,
+      "prev_bid_cover": 3.10,
+      "sec_rate": 19.6057,
+      "sec_rate_5d_ago": 19.2000
+    }
+  ]
+}
