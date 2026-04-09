@@ -1,0 +1,7 @@
+# Backend hosted environment variables
+DATABASE_URL=postgresql+psycopg2://USER:PASSWORD@HOST:5432/DBNAME
+ALLOWED_ORIGINS=https://your-frontend-url.streamlit.app
+
+# Frontend hosted secret
+# Set this in Streamlit secrets or environment variables on your frontend host
+API_BASE_URL=https://your-backend-service-url
