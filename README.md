@@ -1,71 +1,163 @@
-# NG NTB Stop Rate Predictor
+# NTB Stop Rates Predictor
 
-A lightweight Streamlit app for internal treasury scenario testing around Nigerian Treasury Bill auction stop rates.
+A machine learning and time-series forecasting model to predict Nigerian Treasury Bills (NTB) auction stop rates.
 
-## What is in this repo
+## Overview
 
-- `app.py` — current deployed app
-- `app_v2.py` — improved app preview with better resilience and export support
-- `requirements.txt` — current dependency file
-- `requirements_v2.txt` — recommended dependency file aligned to the saved model environment
-- `runtime.txt` — Python runtime for deployment
-- `gti_ntb_v5_91D.pkl`, `gti_ntb_v5_182D.pkl`, `gti_ntb_v5_364D.pkl` — tenor-specific trained model files
+This project builds predictive models for NTB stop rates across different tenors (91-day, 182-day, 364-day) using:
+- **Historical auction data** from the Central Bank of Nigeria (CBN)
+- **Time-series models** (ARIMA, SARIMA, Exponential Smoothing)
+- **Machine learning** (Random Forest, XGBoost, LightGBM)
+- **Deep learning** (LSTM, GRU)
+- **Ensemble methods** for improved predictions
 
-## What the app does
+## Features
 
-The app predicts stop rates for:
-- 91-day NTB
-- 182-day NTB
-- 364-day NTB
+✅ Automated data collection from CBN website  
+✅ Data cleaning and validation  
+✅ Advanced feature engineering  
+✅ Multiple forecasting models  
+✅ Backtesting framework  
+✅ Performance evaluation and comparison  
 
-It uses a small set of engineered pre-auction features, including:
-- recent stop-rate lags
-- moving average of prior stop rates
-- auction offer size and change in supply
-- prior bid cover
-- secondary market rate and 5-day change
-- system liquidity
-- MPR
-- inflation
+## Project Structure
 
-## Recommended next deployment path
-
-1. Replace `app.py` with `app_v2.py`
-2. Replace `requirements.txt` with `requirements_v2.txt`
-3. Redeploy the Streamlit app
-4. Confirm all three model pickle files are in the project root
-
-## Why `requirements_v2.txt` matters
-
-The saved model files appear to have been built with a newer scikit-learn version than the one pinned in the current `requirements.txt`.
-
-Recommended package line:
-- `scikit-learn==1.6.1`
-
-This should reduce model loading and prediction compatibility issues.
-
-## Improvements added in `app_v2.py`
-
-- app no longer stops completely when one model file is missing
-- clearer environment diagnostics in the sidebar
-- reset-to-default button
-- input validation before prediction
-- CSV export for prediction results
-- cleaner deployment notes
-
-## Local run
-
-```bash
-pip install -r requirements_v2.txt
-streamlit run app_v2.py
+```
+ntb-predictor/
+├── data/
+│   ├── raw/                 # CBN Excel/CSV downloads
+│   └── processed/           # Cleaned, formatted data
+├── notebooks/
+│   ├── 01_eda.ipynb        # Exploratory data analysis
+│   ├── 02_data_prep.ipynb  # Data preparation
+│   └── 03_modeling.ipynb    # Model building & evaluation
+├── src/
+│   ├── __init__.py
+│   ├── data_collector.py    # Web scraper for CBN data
+│   ├── preprocessor.py      # Data cleaning & validation
+│   ├── features.py          # Feature engineering
+│   ├── models.py            # Model implementations
+│   ├── evaluation.py        # Evaluation metrics & backtesting
+│   └── utils.py             # Helper functions
+├── tests/
+│   ├── test_preprocessor.py
+│   ├── test_features.py
+│   └── test_models.py
+├── requirements.txt         # Python dependencies
+├── setup.py                 # Package setup
+└── README.md                # This file
 ```
 
-## Deployment note
+## Data Sources
 
-When promoting the improved version, rename:
-- `app_v2.py` -> `app.py`
-- `requirements_v2.txt` -> `requirements.txt`
+1. **Central Bank of Nigeria (CBN)** - Primary source
+   - URL: https://www.cbn.gov.ng/rates/GovtSecurities.html
+   - Data: Stop rates, bid ranges, amounts offered, tenors
 
-## Important usage note
+2. **Secondary Sources**
+   - Nairametrics
+   - Financial Nigeria
+   - Nigeria Galleria Finance
 
-This tool is for internal treasury decision support only. It should be used alongside market colour, liquidity assessment, auction supply context, and desk judgement.
+## Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/jaecyk/ntb-predictor.git
+cd ntb-predictor
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+## Quick Start
+
+### 1. Collect Data
+```python
+from src.data_collector import CBNDataCollector
+
+collector = CBNDataCollector()
+collector.scrape_ntb_rates()
+```
+
+### 2. Preprocess Data
+```python
+from src.preprocessor import DataPreprocessor
+
+preprocessor = DataPreprocessor()
+df_clean = preprocessor.load_and_clean('data/raw/ntb_rates.csv')
+df_processed = preprocessor.prepare_for_modeling(df_clean)
+```
+
+### 3. Engineer Features
+```python
+from src.features import FeatureEngineer
+
+fe = FeatureEngineer()
+df_features = fe.create_features(df_processed)
+```
+
+### 4. Train Models
+```python
+from src.models import ModelPipeline
+
+pipeline = ModelPipeline()
+results = pipeline.train_all_models(df_features)
+pipeline.compare_results(results)
+```
+
+## Model Details
+
+### Time Series Models
+- **ARIMA/SARIMA** - Seasonal AutoRegressive Integrated Moving Average
+- **ExponentialSmoothing** - Triple exponential smoothing (Holt-Winters)
+
+### Machine Learning
+- **Random Forest** - Ensemble tree-based model
+- **XGBoost** - Gradient boosting framework
+- **LightGBM** - Fast gradient boosting
+
+### Deep Learning
+- **LSTM** - Long Short-Term Memory networks
+- **GRU** - Gated Recurrent Unit networks
+
+## Evaluation Metrics
+
+- **MAE** - Mean Absolute Error
+- **RMSE** - Root Mean Squared Error
+- **MAPE** - Mean Absolute Percentage Error
+- **Directional Accuracy** - % of correct direction predictions
+- **Sharpe Ratio** - Risk-adjusted returns
+
+## Backtesting
+
+Walk-forward validation approach:
+1. Train on historical data
+2. Predict next period
+3. Move forward in time
+4. Repeat until end of data
+
+## Contributing
+
+Contributions are welcome! Please:
+1. Fork the repository
+2. Create a feature branch
+3. Commit changes
+4. Push to the branch
+5. Open a Pull Request
+
+## License
+
+MIT License - see LICENSE file for details
+
+## Author
+
+Jaecyk - Building predictive financial models for the Nigerian market
+
+## Contact
+
+For questions or suggestions, please open an issue on GitHub.
