@@ -1,7 +1,14 @@
 import streamlit as st
 import pandas as pd
 import joblib
+import logging
 from pathlib import Path
+
+# =========================================================
+# LOGGING
+# =========================================================
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # =========================================================
 # PAGE CONFIG
@@ -99,6 +106,14 @@ st.markdown("""
         color: #94a3b8;
         font-size: 0.9rem;
     }
+    
+    .warning-box {
+        padding: 1rem;
+        border-radius: 8px;
+        background: rgba(234, 179, 8, 0.1);
+        border: 1px solid rgba(234, 179, 8, 0.3);
+        color: #eab308;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -179,16 +194,35 @@ def init_state():
 
 @st.cache_resource
 def load_models():
+    """
+    Load models with robust error handling.
+    Returns tuple of (models_dict, missing_list, error_list)
+    """
     models = {}
     missing = []
+    errors = []
 
     for tenor, fname in MODEL_FILES.items():
-        if Path(fname).exists():
-            models[tenor] = joblib.load(fname)
-        else:
-            missing.append(fname)
+        try:
+            fpath = Path(fname)
+            if fpath.exists():
+                try:
+                    model = joblib.load(fname)
+                    models[tenor] = model
+                    logger.info(f"✓ Loaded model for {tenor}D tenor")
+                except Exception as e:
+                    error_msg = f"{tenor}D model corrupted: {str(e)[:100]}"
+                    errors.append(error_msg)
+                    logger.error(error_msg)
+            else:
+                missing.append(f"{tenor}D ({fname})")
+                logger.warning(f"Model file not found: {fname}")
+        except Exception as e:
+            error_msg = f"Error checking {tenor}D model: {str(e)[:100]}"
+            errors.append(error_msg)
+            logger.error(error_msg)
 
-    return models, missing
+    return models, missing, errors
 
 def derive_tenor_features(tenor: int) -> dict:
     lag1 = float(st.session_state[f"lag1_stop_{tenor}"])
@@ -281,6 +315,7 @@ def build_tenor_interpretation(tenor: int, pred: float) -> str:
     )
 
 def predict_all(models: dict):
+    """Predict with graceful handling of missing models"""
     preds = {}
     feature_rows = []
 
@@ -289,16 +324,16 @@ def predict_all(models: dict):
         feature_rows.append({"tenor": f"{tenor}D", **feat})
 
         if tenor not in models:
-            preds[tenor] = "Model file not found"
+            preds[tenor] = None  # Model not available
             continue
 
-        X = pd.DataFrame([feat])[FEATURE_ORDER]
-
         try:
+            X = pd.DataFrame([feat])[FEATURE_ORDER]
             yhat = float(models[tenor].predict(X)[0])
             preds[tenor] = round(yhat, 4)
         except Exception as e:
-            preds[tenor] = f"{type(e).__name__}: {e}"
+            preds[tenor] = None
+            logger.error(f"Prediction error for {tenor}D: {str(e)}")
 
     return preds, pd.DataFrame(feature_rows)
 
@@ -306,7 +341,7 @@ def predict_all(models: dict):
 # INIT
 # =========================================================
 init_state()
-models, missing_models = load_models()
+models, missing_models, model_errors = load_models()
 
 # =========================================================
 # HEADER
@@ -323,13 +358,29 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-if missing_models:
-    st.error(
-        "Missing model file(s): " + ", ".join(missing_models) +
-        ". Upload the new v5 model files before predicting."
+# =========================================================
+# STATUS ALERTS
+# =========================================================
+if model_errors:
+    st.warning(
+        f"⚠️ **Model Loading Issues:**\n\n"
+        + "\n".join([f"• {err}" for err in model_errors])
     )
-    st.stop()
 
+if missing_models:
+    st.info(
+        f"ℹ️ **Missing Models:**\n\n"
+        f"The following model files are not available:\n"
+        + "\n".join([f"• {m}" for m in missing_models]) +
+        f"\n\n**Impact:** Predictions will be unavailable for these tenors. "
+        f"Upload model files to enable predictions, or use the calculator mode to explore scenarios."
+    )
+
+models_available = len(models) > 0
+
+# =========================================================
+# MAIN LAYOUT
+# =========================================================
 left, right = st.columns([1.02, 1.48], gap="large")
 
 # =========================================================
@@ -479,15 +530,24 @@ with right:
         preview_df = build_feature_table()
         st.dataframe(preview_df, use_container_width=True, hide_index=True)
 
-        if st.button(
-            "Predict Stop Rates",
-            type="primary",
-            use_container_width=True,
-            help="Run all three tenor models using the current pre-auction scenario."
-        ):
-            preds, pred_features = predict_all(models)
-            st.session_state["predictions"] = preds
-            st.session_state["pred_features"] = pred_features
+        if models_available:
+            if st.button(
+                "Predict Stop Rates",
+                type="primary",
+                use_container_width=True,
+                help="Run all three tenor models using the current pre-auction scenario."
+            ):
+                preds, pred_features = predict_all(models)
+                st.session_state["predictions"] = preds
+                st.session_state["pred_features"] = pred_features
+        else:
+            st.button(
+                "Predict Stop Rates",
+                type="primary",
+                use_container_width=True,
+                disabled=True,
+                help="Models not available. Upload model files to enable predictions."
+            )
 
     if "predictions" in st.session_state:
         with st.container(border=True):
@@ -508,8 +568,8 @@ with right:
                     col.metric(f"{tenor}D Estimated Stop Rate", f"{val:.2f}%")
                     col.caption(interpretation)
                 else:
-                    col.error(f"{tenor}D prediction failed")
-                    col.caption(str(val))
+                    col.warning(f"{tenor}D model not available")
+                    col.caption("Upload model file to enable")
 
         with st.container(border=True):
             st.markdown('<div class="section-label">Interpretation</div>', unsafe_allow_html=True)
@@ -521,7 +581,7 @@ with right:
                 if isinstance(val, (float, int)):
                     st.markdown(f"**{tenor}D:** {build_tenor_interpretation(tenor, float(val))}")
                 else:
-                    st.markdown(f"**{tenor}D:** Interpretation unavailable because prediction failed.")
+                    st.markdown(f"**{tenor}D:** Model unavailable - no interpretation available.")
 
         with st.container(border=True):
             st.markdown('<div class="section-label">Audit Trail</div>', unsafe_allow_html=True)
@@ -529,6 +589,17 @@ with right:
             st.dataframe(st.session_state["pred_features"], use_container_width=True, hide_index=True)
 
     with st.container(border=True):
-        st.markdown('<div class="section-label">Note</div>', unsafe_allow_html=True)
-        st.subheader("Model Use")
+        st.markdown('<div class="section-label">Status</div>', unsafe_allow_html=True)
+        st.subheader("System Status")
+        
+        status_info = f"""
+        **Models Loaded:** {len(models)}/{len(TENORS)}
+        
+        **Available Tenors:**
+        """
+        for tenor in TENORS:
+            status = "✓ Loaded" if tenor in models else "✗ Not available"
+            status_info += f"\n- {tenor}D: {status}"
+        
+        st.markdown(status_info)
         st.caption("For internal treasury decision support only.")
