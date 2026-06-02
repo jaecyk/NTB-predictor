@@ -61,6 +61,33 @@ class AuctionResultOut(AuctionResultIn):
         from_attributes = True
 
 
+class HistoricalRowIn(BaseModel):
+    """One row of historical data: snapshot features + realised stop rate."""
+    auction_date: date
+    tenor_days: int
+    lag1_stop: float
+    lag2_stop: float
+    lag3_stop: float
+    offer_amt: float
+    prev_offer: float
+    prev_bid_cover: float
+    sec_rate: float
+    sec_rate_5d_ago: float
+    system_liquidity: float
+    mpr: float
+    inflation: float
+    actual_stop_rate: float
+    source: str | None = "historical_import"
+
+
+class BulkImportOut(BaseModel):
+    imported_snapshots: int
+    imported_results: int
+    skipped: int
+    errors: list[str]
+    ready_to_train: dict[str, bool]
+
+
 class AccuracyItem(BaseModel):
     tenor_days: int
     n_compared: int

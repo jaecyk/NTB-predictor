@@ -123,8 +123,8 @@ st.caption(
     "and retrain the models on the accumulated history stored in the database."
 )
 
-tab_results, tab_accuracy, tab_train, tab_history = st.tabs(
-    ["Record Result", "Accuracy", "Retrain Models", "Training History"]
+tab_results, tab_accuracy, tab_train, tab_history, tab_import = st.tabs(
+    ["Record Result", "Accuracy", "Retrain Models", "Training History", "Bulk Import"]
 )
 
 # --- Record actual auction result ---------------------------------------
@@ -235,6 +235,84 @@ with tab_train:
                     st.warning(f"**{tenor}D** — {item['message']}")
                 else:
                     st.error(f"**{tenor}D** — {item['message']}")
+        except Exception as exc:
+            st.error(str(exc))
+
+# --- Bulk historical import ---------------------------------------------
+with tab_import:
+    st.subheader("Bulk Historical Import")
+    st.write(
+        "Upload a CSV of past auction data to seed the database in one step. "
+        "Each row must contain both the pre-auction snapshot features **and** "
+        "the realised `actual_stop_rate`. Once imported you can retrain "
+        "immediately — no need to collect 12 live points first."
+    )
+
+    IMPORT_COLUMNS = [
+        "auction_date", "tenor_days",
+        "lag1_stop", "lag2_stop", "lag3_stop",
+        "offer_amt", "prev_offer", "prev_bid_cover",
+        "sec_rate", "sec_rate_5d_ago",
+        "system_liquidity", "mpr", "inflation",
+        "actual_stop_rate", "source",
+    ]
+
+    with st.expander("CSV column reference"):
+        st.code(", ".join(IMPORT_COLUMNS))
+        st.caption(
+            "`auction_date` — YYYY-MM-DD  |  `tenor_days` — 91 / 182 / 364  |  "
+            "`source` — optional label (e.g. `historical`)"
+        )
+
+    uploaded = st.file_uploader(
+        "Choose historical CSV", type=["csv"], key="bulk_import_csv"
+    )
+
+    if uploaded is not None:
+        try:
+            df_preview = pd.read_csv(uploaded)
+            uploaded.seek(0)
+            st.write(f"**{len(df_preview)} rows** detected — preview:")
+            st.dataframe(df_preview.head(5), use_container_width=True, hide_index=True)
+
+            missing_cols = [c for c in IMPORT_COLUMNS if c != "source" and c not in df_preview.columns]
+            if missing_cols:
+                st.error(f"Missing required columns: {', '.join(missing_cols)}")
+            else:
+                if st.button("Import into database", type="primary", use_container_width=True):
+                    df_import = pd.read_csv(uploaded)
+                    if "source" not in df_import.columns:
+                        df_import["source"] = "historical_import"
+                    df_import["source"] = df_import["source"].fillna("historical_import")
+
+                    payload = df_import[IMPORT_COLUMNS].to_dict(orient="records")
+                    for row in payload:
+                        row["auction_date"] = str(row["auction_date"])
+                        row["tenor_days"] = int(row["tenor_days"])
+
+                    with st.spinner("Importing…"):
+                        res = api_post("/import/historical", payload)
+
+                    if res.status_code == 200:
+                        result = res.json()
+                        st.success(
+                            f"Imported **{result['imported_snapshots']} snapshots** "
+                            f"and **{result['imported_results']} results**."
+                            + (f"  Skipped: {result['skipped']}" if result["skipped"] else "")
+                        )
+                        ready = result["ready_to_train"]
+                        rcols = st.columns(3)
+                        for col, (tenor_key, is_ready) in zip(rcols, ready.items()):
+                            col.metric(
+                                tenor_key,
+                                "Ready to train ✓" if is_ready else "Need more data",
+                            )
+                        if result["errors"]:
+                            with st.expander("Row errors"):
+                                for err in result["errors"]:
+                                    st.warning(err)
+                    else:
+                        st.error(f"{res.status_code}: {res.text}")
         except Exception as exc:
             st.error(str(exc))
 

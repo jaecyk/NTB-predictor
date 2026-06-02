@@ -20,6 +20,9 @@ set a PostgreSQL URL in production).
 ## The live-training loop
 
 ```
+0. POST /import/historical  → (one-time bootstrap) seed DB with past data so
+                              you can retrain on day 1 instead of waiting for
+                              12 live auctions to accumulate
 1. POST /snapshots          → store pre-auction market features
 2. POST /predict/latest     → model predicts; prediction logged to DB
 3. POST /auctions/results   → after the auction, record the ACTUAL stop rate
@@ -39,6 +42,18 @@ time-series cross-validation, writes a versioned `.pkl` plus the canonical
 
 ### `GET /health`
 Returns service status and which tenor models are loaded.
+
+### `POST /import/historical`
+Bootstrap the database with past auction data in one call.
+Accepts a JSON array of `HistoricalRowIn` objects — each identical to
+`MarketSnapshotIn` plus an `actual_stop_rate` field. Each row is inserted into
+both `market_snapshots` and `auction_results`. Returns `BulkImportOut`:
+`imported_snapshots`, `imported_results`, `skipped`, `errors`, and
+`ready_to_train` (per-tenor boolean, true when ≥ 12 matched pairs exist).
+
+Use `historical_import_template.csv` in the repo root as a starting-point
+column layout. The Streamlit "Bulk Import" tab provides a drag-and-drop UI for
+this endpoint.
 
 ### `POST /snapshots`
 Store a pre-auction market snapshot. Body: `MarketSnapshotIn`

@@ -11,6 +11,8 @@ from backend_schemas import (
     AccuracyItem,
     AuctionResultIn,
     AuctionResultOut,
+    BulkImportOut,
+    HistoricalRowIn,
     MarketSnapshotIn,
     MarketSnapshotOut,
     PredictionOut,
@@ -123,6 +125,69 @@ def list_auction_results(limit: int = 50, db: Session = Depends(get_db)):
         .order_by(AuctionResult.auction_date.desc())
         .limit(limit)
         .all()
+    )
+
+
+# ---------------------------------------------------------------------------
+# Bulk historical import: seed snapshot + result tables in one call
+# ---------------------------------------------------------------------------
+
+@app.post("/import/historical", response_model=BulkImportOut)
+def import_historical(rows: list[HistoricalRowIn], db: Session = Depends(get_db)):
+    imported_snapshots = 0
+    imported_results = 0
+    skipped = 0
+    errors: list[str] = []
+
+    for i, row in enumerate(rows):
+        if row.tenor_days not in TENORS:
+            errors.append(f"Row {i}: tenor_days {row.tenor_days} not in {TENORS}; skipped.")
+            skipped += 1
+            continue
+
+        snap_data = row.model_dump(exclude={"actual_stop_rate"})
+        snap = MarketSnapshot(**snap_data)
+        db.add(snap)
+
+        result_data = {
+            "auction_date": row.auction_date,
+            "tenor_days": row.tenor_days,
+            "actual_stop_rate": row.actual_stop_rate,
+            "source": row.source,
+        }
+        result = AuctionResult(**result_data)
+        db.add(result)
+
+        imported_snapshots += 1
+        imported_results += 1
+
+    db.commit()
+
+    # Determine which tenors now have enough data to train.
+    from sqlalchemy import and_, func as sqlfunc
+    ready: dict[str, bool] = {}
+    for tenor in TENORS:
+        count = (
+            db.query(sqlfunc.count())
+            .select_from(MarketSnapshot)
+            .join(
+                AuctionResult,
+                and_(
+                    MarketSnapshot.auction_date == AuctionResult.auction_date,
+                    MarketSnapshot.tenor_days == AuctionResult.tenor_days,
+                ),
+            )
+            .filter(MarketSnapshot.tenor_days == tenor)
+            .scalar()
+        )
+        ready[f"{tenor}D"] = count >= backend_trainer.MIN_TRAINING_SAMPLES
+
+    return BulkImportOut(
+        imported_snapshots=imported_snapshots,
+        imported_results=imported_results,
+        skipped=skipped,
+        errors=errors,
+        ready_to_train=ready,
     )
 
 
