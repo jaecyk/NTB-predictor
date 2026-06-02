@@ -19,3 +19,7 @@ gti_ntb_v2*_*D.pkl
 .DS_Store
 .idea/
 .vscode/
+
+# Raw data source files (large; reference only)
+data/*.xlsx
+data/*.xls
