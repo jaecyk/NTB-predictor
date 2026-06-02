@@ -8,7 +8,10 @@ TENORS = [91, 182, 364]
 
 st.set_page_config(page_title="NG NTB Live Frontend", page_icon="🇳🇬", layout="wide")
 st.title("NG NTB Live Frontend")
-st.caption("Frontend for the FastAPI backend, live snapshots, and prediction history.")
+st.caption(
+    "Operator console for the FastAPI backend: live snapshots, predictions, "
+    "actual auction results, accuracy tracking, and model retraining."
+)
 
 
 def api_get(path: str):
@@ -106,5 +109,145 @@ with right:
         try:
             res = api_get("/predictions/history?limit=20")
             st.dataframe(pd.DataFrame(res.json()), use_container_width=True, hide_index=True)
+        except Exception as exc:
+            st.error(str(exc))
+
+
+# =========================================================
+# LIVE TRAINING LOOP
+# =========================================================
+st.divider()
+st.header("Live Training Loop")
+st.caption(
+    "Record realised auction outcomes, measure how predictions performed, "
+    "and retrain the models on the accumulated history stored in the database."
+)
+
+tab_results, tab_accuracy, tab_train, tab_history = st.tabs(
+    ["Record Result", "Accuracy", "Retrain Models", "Training History"]
+)
+
+# --- Record actual auction result ---------------------------------------
+with tab_results:
+    st.subheader("Record Actual Stop Rate")
+    st.write(
+        "After an auction settles, record the realised stop rate. This is the "
+        "training target the models learn from."
+    )
+
+    rc1, rc2, rc3 = st.columns(3)
+    with rc1:
+        result_tenor = st.selectbox("Tenor", TENORS, key="result_tenor")
+    with rc2:
+        result_date = st.date_input("Auction date", key="result_date")
+    with rc3:
+        actual_stop_rate = st.number_input(
+            "Actual stop rate (%)", value=16.00, step=0.01, format="%.4f", key="actual_rate"
+        )
+    result_source = st.text_input("Source", value="manual", key="result_source")
+
+    if st.button("Save auction result", type="primary", use_container_width=True):
+        payload = {
+            "auction_date": str(result_date),
+            "tenor_days": result_tenor,
+            "actual_stop_rate": actual_stop_rate,
+            "source": result_source,
+        }
+        try:
+            res = api_post("/auctions/results", payload)
+            if res.status_code == 200:
+                st.success(f"Saved {result_tenor}D result for {result_date}.")
+                st.json(res.json())
+            else:
+                st.error(f"{res.status_code}: {res.text}")
+        except Exception as exc:
+            st.error(str(exc))
+
+    st.markdown("**Recorded Results**")
+    if st.button("Load recorded results", use_container_width=True):
+        try:
+            res = api_get("/auctions/results?limit=50")
+            data = res.json()
+            if data:
+                st.dataframe(pd.DataFrame(data), use_container_width=True, hide_index=True)
+            else:
+                st.info("No auction results recorded yet.")
+        except Exception as exc:
+            st.error(str(exc))
+
+# --- Accuracy -----------------------------------------------------------
+with tab_accuracy:
+    st.subheader("Prediction Accuracy")
+    st.write(
+        "Compares logged predictions against recorded actuals, matched on "
+        "auction date and tenor. Positive bias means the model over-predicts."
+    )
+
+    if st.button("Compute accuracy", type="primary", use_container_width=True):
+        try:
+            res = api_get("/accuracy")
+            data = res.json()
+            df = pd.DataFrame(data)
+
+            cols = st.columns(len(TENORS))
+            for col, item in zip(cols, data):
+                tenor = item["tenor_days"]
+                n = item["n_compared"]
+                mae = item["mae"]
+                if n and mae is not None:
+                    col.metric(f"{tenor}D MAE", f"{mae:.4f}%", help=f"{n} predictions compared")
+                    col.caption(f"RMSE {item['rmse']:.4f} · bias {item['bias']:+.4f}")
+                else:
+                    col.metric(f"{tenor}D MAE", "—")
+                    col.caption("No matched predictions yet")
+
+            st.dataframe(df, use_container_width=True, hide_index=True)
+        except Exception as exc:
+            st.error(str(exc))
+
+# --- Retrain ------------------------------------------------------------
+with tab_train:
+    st.subheader("Retrain Models")
+    st.write(
+        "Retrains every tenor that has at least 12 matched snapshot + result "
+        "pairs. New models are saved and loaded immediately — the next "
+        "prediction uses them with no restart."
+    )
+
+    if st.button("Retrain now", type="primary", use_container_width=True):
+        try:
+            with st.spinner("Training models from stored history…"):
+                res = api_post("/train", {})
+            results = res.json()
+            for item in results:
+                tenor = item["tenor_days"]
+                status = item["status"]
+                if status == "ok":
+                    st.success(
+                        f"**{tenor}D** — trained on {item['n_samples']} samples "
+                        f"(version {item['model_version']})"
+                    )
+                    mc1, mc2, mc3 = st.columns(3)
+                    mc1.metric("MAE", f"{item['mae']:.4f}%")
+                    mc2.metric("RMSE", f"{item['rmse']:.4f}%")
+                    mc3.metric("R²", f"{item['r2']:.4f}")
+                elif status == "skip":
+                    st.warning(f"**{tenor}D** — {item['message']}")
+                else:
+                    st.error(f"**{tenor}D** — {item['message']}")
+        except Exception as exc:
+            st.error(str(exc))
+
+# --- Training history ---------------------------------------------------
+with tab_history:
+    st.subheader("Training History")
+    if st.button("Load training history", use_container_width=True):
+        try:
+            res = api_get("/training/history?limit=20")
+            data = res.json()
+            if data:
+                st.dataframe(pd.DataFrame(data), use_container_width=True, hide_index=True)
+            else:
+                st.info("No training runs logged yet.")
         except Exception as exc:
             st.error(str(exc))
