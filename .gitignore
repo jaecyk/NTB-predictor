@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Runtime databases
+*.db
+*.db-wal
+*.db-shm
+ntb_live.db
+ntb_predictor.db
+
+# Auto-versioned model files (canonical gti_ntb_v5_*.pkl stay tracked)
+gti_ntb_v2*_*D.pkl
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

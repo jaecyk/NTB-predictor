@@ -44,3 +44,52 @@ class PredictionRunOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class AuctionResultIn(BaseModel):
+    auction_date: date
+    tenor_days: int
+    actual_stop_rate: float
+    source: str | None = None
+
+
+class AuctionResultOut(AuctionResultIn):
+    id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class AccuracyItem(BaseModel):
+    tenor_days: int
+    n_compared: int
+    mae: float | None
+    rmse: float | None
+    bias: float | None  # mean(predicted - actual); +ve = model over-predicts
+
+
+class TrainingResultOut(BaseModel):
+    tenor_days: int
+    status: str
+    message: str
+    n_samples: int
+    model_version: str | None = None
+    mae: float | None = None
+    rmse: float | None = None
+    r2: float | None = None
+
+
+class TrainingRunOut(BaseModel):
+    id: int
+    tenor_days: int
+    model_version: str
+    n_samples: int
+    mae: float | None
+    rmse: float | None
+    r2: float | None
+    status: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
