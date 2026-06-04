@@ -3,7 +3,11 @@ import requests
 import pandas as pd
 import streamlit as st
 
-API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
+# Streamlit Cloud stores secrets in st.secrets; env var is fallback for local use.
+try:
+    API_BASE_URL = st.secrets["API_BASE_URL"]
+except (KeyError, FileNotFoundError):
+    API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 TENORS = [91, 182, 364]
 
 st.set_page_config(page_title="NG NTB Live Frontend", page_icon="🇳🇬", layout="wide")
